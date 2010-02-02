@@ -1,0 +1,7 @@
+MSVC/swig/Debug
+MSVC/swig/Release
+MSVC/swig/*.user
+MSVC/swig/*.suo
+MSVC/swig/*.ncb
+
+
