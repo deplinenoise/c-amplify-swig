@@ -47,6 +47,7 @@ extern "C" {
   Language *swig_cffi(void);
   Language *swig_uffi(void);
   Language *swig_r(void);
+  Language *swig_camplify(void);
 }
 
 struct swig_module {
@@ -86,6 +87,7 @@ static swig_module modules[] = {
   {"-tcl8", swig_tcl, 0},
   {"-uffi", swig_uffi, "Common Lisp / UFFI"},
   {"-xml", swig_xml, "XML"},
+  {"-camplify", swig_camplify, "c-amplify"},
   {NULL, NULL, NULL}
 };
 

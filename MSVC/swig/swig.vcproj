@@ -327,6 +327,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\Source\Modules\camplify.cxx"
+				>
+			</File>
+			<File
 				RelativePath="..\..\Source\Modules\cffi.cxx"
 				>
 			</File>
