@@ -4,4 +4,5 @@ MSVC/swig/*.user
 MSVC/swig/*.suo
 MSVC/swig/*.ncb
 MSVC/test
+push.cmd
 
