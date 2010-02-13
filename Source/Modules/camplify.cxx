@@ -8,6 +8,8 @@
 
 #include "swigmod.h"
 
+static String *get_type_string(Node *n, SwigType *ty, int is_function);
+
 class CAMPLIFY : public Language 
 {
 public:
@@ -21,14 +23,10 @@ public:
 	virtual int typedefHandler(Node *n);
 
 private:
-	String *CAMPLIFY::get_ffi_type(Node *n, SwigType *ty);
-
-private:
 	String *module;
 	File *f_cl;
 	List *entries;
 	int extern_all_flag;
-	int is_function;
 };
 
 CAMPLIFY::CAMPLIFY()
@@ -37,7 +35,6 @@ CAMPLIFY::CAMPLIFY()
 	f_cl = 0;
 	entries = 0;
 	extern_all_flag = 0;
-	is_function = 0;
 }
 
 void CAMPLIFY::main(int argc, char *argv[])
@@ -81,57 +78,16 @@ int CAMPLIFY::top(Node *n)
 
 	Printf(header, "\n(defpackage :%s\n  (:use :common-lisp :ffi)", module);
 
-
 	// Parse the input and invoke all callbacks defined in this class
-
 	Language::top(n);
 
-	// Write out all collected data
-	Iterator i;
-
-	//long len = Len(entries);
-	//if (len > 0) {
-	//	Printf(header, "\n  (:export");
-	//}
-	////else nothing to export
-
-	//for (i = First(entries); i.item; i = Next(i)) {
-	//	Printf(header, "\n\t:%s", i.item);
-	//}
-
-	//if (len > 0) {
-	//	Printf(header, ")");
-	//}
-
-	//Printf(header, ")\n");
-	//Printf(header, "\n(in-package :%s)\n", module);
-	//Printf(header, "\n(default-foreign-language :stdc)\n");
-
-	//len = Tell(f_cl);
-
-	//Printf(f_cl, "%s", header);
-
-	//long end = Tell(f_cl);
-
-	//for (len--; len >= 0; len--) {
-	//	end--;
-	//	Seek(f_cl, len, SEEK_SET);
-	//	int ch = Getc(f_cl);
-	//	Seek(f_cl, end, SEEK_SET);
-	//	Putc(ch, f_cl);
-	//}
-
-	//Seek(f_cl, 0, SEEK_SET);
-	//Write(f_cl, Char(header), Len(header));
-
 	Close(f_cl);
-	Delete(f_cl);			// Deletes the handle, not the file
+	Delete(f_cl);
 	return SWIG_OK;
 }
 
 int CAMPLIFY::functionWrapper(Node *n)
 {
-	is_function = 1;
 	String *storage = Getattr(n, "storage");
 	if (!extern_all_flag && (!storage || (Strcmp(storage, "extern") && Strcmp(storage, "externc"))))
 		return SWIG_OK;
@@ -154,7 +110,7 @@ int CAMPLIFY::functionWrapper(Node *n)
 		String *argname = Getattr(p, "name");
 		//    SwigType *argtype;
 
-		String *ffitype = get_ffi_type(n, Getattr(p, "type"));
+		String *ffitype = get_type_string(n, Getattr(p, "type"), 1);
 
 		int tempargname = 0;
 
@@ -177,7 +133,7 @@ int CAMPLIFY::functionWrapper(Node *n)
 	if (ParmList_len(pl) != 0) {
 		Printf(f_cl, ")\n");	/* finish arg list */
 	}
-	String *ffitype = get_ffi_type(n, Getattr(n, "type"));
+	String *ffitype = get_type_string(n, Getattr(n, "type"), 1);
 	if (Strcmp(ffitype, "NIL")) {	//when return type is not nil
 		Printf(f_cl, "\t(:return %s))\n", ffitype);
 	} else {
@@ -208,131 +164,14 @@ int CAMPLIFY::enumDeclaration(Node *n)
 int CAMPLIFY::typedefHandler(Node *n)
 {
   //if (generate_typedef_flag) {
-    is_function = 0;
-    Printf(f_cl, "\n(def-c-type %s %s)\n", Getattr(n, "name"), get_ffi_type(n, Getattr(n, "type")));
+    Printf(f_cl, "\n(def-c-type %s %s)\n", Getattr(n, "name"), get_type_string(n, Getattr(n, "type"), 0));
   //}
 
   return Language::typedefHandler(n);
 }
 
-String *CAMPLIFY::get_ffi_type(Node *n, SwigType *ty) 
+String * get_class_or_struct( SwigType * ty )
 {
-	Node *node = NewHash();
-	Setattr(node, "type", ty);
-	Setfile(node, Getfile(n));
-	Setline(node, Getline(n));
-	const String *tm = Swig_typemap_lookup("in", node, "", 0);
-	Delete(node);
-
-	if (tm) {
-		return NewString(tm);
-	} else if (SwigType_ispointer(ty)) {
-		SwigType *cp = Copy(ty);
-		SwigType_del_pointer(cp);
-		String *inner_type = get_ffi_type(n, cp);
-
-		if (SwigType_isfunction(cp)) {
-			return inner_type;
-		}
-
-		SwigType *base = SwigType_base(ty);
-		String *base_name = SwigType_str(base, 0);
-
-		String *str;
-		if (!Strcmp(base_name, "int") || !Strcmp(base_name, "float") || !Strcmp(base_name, "short")
-			|| !Strcmp(base_name, "double") || !Strcmp(base_name, "long") || !Strcmp(base_name, "char")) {
-
-				str = NewStringf("(ptr %s)", inner_type);
-		} else {
-			str = NewStringf("(ptr %s)", inner_type);
-		}
-		Delete(base_name);
-		Delete(base);
-		Delete(cp);
-		Delete(inner_type);
-		return str;
-	} else if (SwigType_isarray(ty)) {
-		SwigType *cp = Copy(ty);
-		String *array_dim = SwigType_array_getdim(ty, 0);
-
-		if (!Strcmp(array_dim, "")) {	//dimension less array convert to pointer
-			Delete(array_dim);
-			SwigType_del_array(cp);
-			SwigType_add_pointer(cp);
-			String *str = get_ffi_type(n, cp);
-			Delete(cp);
-			return str;
-		} else {
-			SwigType_pop_arrays(cp);
-			String *inner_type = get_ffi_type(n, cp);
-			Delete(cp);
-
-			int ndim = SwigType_array_ndim(ty);
-			String *dimension;
-			if (ndim == 1) {
-				dimension = array_dim;
-			} else {
-				dimension = array_dim;
-				for (int i = 1; i < ndim; i++) {
-					array_dim = SwigType_array_getdim(ty, i);
-					Append(dimension, " ");
-					Append(dimension, array_dim);
-					Delete(array_dim);
-				}
-				String *temp = dimension;
-				dimension = NewStringf("(%s)", dimension);
-				Delete(temp);
-			}
-			String *str;
-			if (is_function)
-				str = NewStringf("(ptr (array %s %s))", inner_type, dimension);
-			else
-				str = NewStringf("(array %s %s)", inner_type, dimension);
-
-			Delete(inner_type);
-			Delete(dimension);
-			return str;
-		}
-	} else if (SwigType_isfunction(ty)) {
-		SwigType *cp = Copy(ty);
-		SwigType *fn = SwigType_pop_function(cp);
-		String *args = NewString("");
-		ParmList *pl = SwigType_function_parms(fn);
-		if (ParmList_len(pl) != 0) {
-			Printf(args, "(:arguments ");
-		}
-		int argnum = 0, first = 1;
-		for (Parm *p = pl; p; p = nextSibling(p), argnum++) {
-			String *argname = Getattr(p, "name");
-			SwigType *argtype = Getattr(p, "type");
-			String *ffitype = get_ffi_type(n, argtype);
-
-			int tempargname = 0;
-
-			if (!argname) {
-				argname = NewStringf("arg%d", argnum);
-				tempargname = 1;
-			}
-			if (!first) {
-				Printf(args, "\n\t\t");
-			}
-			Printf(args, "(%s %s)", argname, ffitype);
-			first = 0;
-			Delete(ffitype);
-			if (tempargname)
-				Delete(argname);
-		}
-		if (ParmList_len(pl) != 0) {
-			Printf(args, ")\n");	/* finish arg list */
-		}
-		String *ffitype = get_ffi_type(n, cp);
-		String *str = NewStringf("(cfunction %s \t\t\t\t(return %s))", args, ffitype);
-		Delete(fn);
-		Delete(args);
-		Delete(cp);
-		Delete(ffitype);
-		return str;
-	}
 	String *str = SwigType_str(ty, 0);
 	if (str) {
 		char *st = Strstr(str, "struct");
@@ -347,6 +186,148 @@ String *CAMPLIFY::get_ffi_type(Node *n, SwigType *ty)
 		}
 	}
 	return str;
+}
+
+const String* find_in_typemap( SwigType * ty, Node * n )
+{
+	Node *node = NewHash();
+	Setattr(node, "type", ty);
+	Setfile(node, Getfile(n));
+	Setline(node, Getline(n));
+	const String *tm = Swig_typemap_lookup("in", node, "", 0);
+	Delete(node);
+	return tm;
+}
+
+String * get_function_type_string( SwigType * ty, Node * n, int is_function )
+{
+	SwigType *cp = Copy(ty);
+	SwigType *fn = SwigType_pop_function(cp);
+	String *args = NewString("");
+	ParmList *pl = SwigType_function_parms(fn);
+	if (ParmList_len(pl) != 0) {
+		Printf(args, "(:arguments ");
+	}
+	int argnum = 0, first = 1;
+	for (Parm *p = pl; p; p = nextSibling(p), argnum++) {
+		String *argname = Getattr(p, "name");
+		SwigType *argtype = Getattr(p, "type");
+		String *ffitype = get_type_string(n, argtype, is_function);
+
+		int tempargname = 0;
+
+		if (!argname) {
+			argname = NewStringf("arg%d", argnum);
+			tempargname = 1;
+		}
+		if (!first) {
+			Printf(args, "\n\t\t");
+		}
+		Printf(args, "(%s %s)", argname, ffitype);
+		first = 0;
+		Delete(ffitype);
+		if (tempargname)
+			Delete(argname);
+	}
+	if (ParmList_len(pl) != 0) {
+		Printf(args, ")\n");	/* finish arg list */
+	}
+	String *ffitype = get_type_string(n, cp, is_function);
+	String *str = NewStringf("(cfunction %s \t\t\t\t(return %s))", args, ffitype);
+	Delete(fn);
+	Delete(args);
+	Delete(cp);
+	Delete(ffitype);
+	return str;
+}
+
+String * get_array_type_string( SwigType * ty, Node * n, int is_function )
+{
+	SwigType *cp = Copy(ty);
+	String *array_dim = SwigType_array_getdim(ty, 0);
+
+	if (!Strcmp(array_dim, "")) {	//dimension less array convert to pointer
+		Delete(array_dim);
+		SwigType_del_array(cp);
+		SwigType_add_pointer(cp);
+		String *str = get_type_string(n, cp, is_function);
+		Delete(cp);
+		return str;
+	} else {
+		SwigType_pop_arrays(cp);
+		String *inner_type = get_type_string(n, cp, is_function);
+		Delete(cp);
+
+		int ndim = SwigType_array_ndim(ty);
+		String *dimension;
+		if (ndim == 1) {
+			dimension = array_dim;
+		} else {
+			dimension = array_dim;
+			for (int i = 1; i < ndim; i++) {
+				array_dim = SwigType_array_getdim(ty, i);
+				Append(dimension, " ");
+				Append(dimension, array_dim);
+				Delete(array_dim);
+			}
+			String *temp = dimension;
+			dimension = NewStringf("(%s)", dimension);
+			Delete(temp);
+		}
+		String *str;
+		if (is_function)
+			str = NewStringf("(ptr (array %s %s))", inner_type, dimension);
+		else
+			str = NewStringf("(array %s %s)", inner_type, dimension);
+
+		Delete(inner_type);
+		Delete(dimension);
+		return str;
+	}
+}
+
+String * get_pointer_type_string( SwigType * ty, Node * n, int is_function )
+{
+	SwigType *cp = Copy(ty);
+	SwigType_del_pointer(cp);
+	String *inner_type = get_type_string(n, cp, is_function);
+
+	if (SwigType_isfunction(cp)) {
+		return inner_type;
+	}
+
+	SwigType *base = SwigType_base(ty);
+	String *base_name = SwigType_str(base, 0);
+
+	String *str;
+	if (!Strcmp(base_name, "int") || !Strcmp(base_name, "float") || !Strcmp(base_name, "short")
+		|| !Strcmp(base_name, "double") || !Strcmp(base_name, "long") || !Strcmp(base_name, "char")) {
+
+			str = NewStringf("(ptr %s)", inner_type);
+	} else {
+		str = NewStringf("(ptr %s)", inner_type);
+	}
+	Delete(base_name);
+	Delete(base);
+	Delete(cp);
+	Delete(inner_type);
+	return str;
+}
+
+String *get_type_string(Node *n, SwigType *ty, int is_function) 
+{
+	const String *tm = 0;
+	if (tm = find_in_typemap(ty, n))
+		return NewString(tm);
+	else if (SwigType_ispointer(ty))
+		return get_pointer_type_string(ty, n, is_function);
+	else if (SwigType_isarray(ty))
+		return get_array_type_string(ty, n, is_function);
+	else if (SwigType_isfunction(ty))
+		return get_function_type_string(ty, n, is_function);
+	else
+		return get_class_or_struct(ty);
+
 }
 extern "C" Language *swig_camplify(void) 
 {
