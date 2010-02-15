@@ -143,8 +143,10 @@ get_pointer_type_string(SwigType *ty, Node *n, int is_function)
 }
 
 String *
-camplify_type_string(Node *n, SwigType *ty, int is_function) 
+camplify_type_string(Node *n, SwigType *ty_in, int is_function) 
 {
+	//SwigType *ty = SwigType_typedef_resolve_all(ty_in);
+	SwigType *ty = ty_in;
 	const String *tm = 0;
 	if (tm = find_in_typemap(ty, n))
 		return NewString(tm);

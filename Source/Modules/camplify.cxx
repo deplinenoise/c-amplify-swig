@@ -20,6 +20,7 @@ public:
 	virtual int constantWrapper(Node *n);
 	virtual int enumDeclaration(Node *n);
 	virtual int typedefHandler(Node *n);
+	virtual int classDeclaration(Node *n);
 
 private:
 	String *module;
@@ -167,6 +168,45 @@ int CAMPLIFY::typedefHandler(Node *n)
   //}
 
   return Language::typedefHandler(n);
+}
+
+// Includes structs
+int CAMPLIFY::classDeclaration(Node *n) 
+{
+	String *name = Getattr(n, "sym:name");
+	String *kind = Getattr(n, "kind");
+
+	// TODO: union?
+	if (Strcmp(kind, "struct")) {
+		Printf(stderr, "Don't know how to deal with %s kind of class yet.\n", kind);
+		Printf(stderr, " (name: %s)\n", name);
+		SWIG_exit(EXIT_FAILURE);
+	}
+
+	Printf(f_cl, "\n(def-c-struct %s", name);
+
+	for (Node *c = firstChild(n); c; c = nextSibling(c)) {
+
+		if (Strcmp(nodeType(c), "cdecl")) {
+			Printf(stderr, "Structure %s has a slot that we can't deal with.\n", name);
+			Printf(stderr, "nodeType: %s, name: %s, type: %s\n", nodeType(c), Getattr(c, "name"), Getattr(c, "type"));
+			SWIG_exit(EXIT_FAILURE);
+		}
+
+		String *temp = Copy(Getattr(c, "decl"));
+		Append(temp, Getattr(c, "type"));	//appending type to the end, otherwise wrong type
+		String *lisp_type = camplify_type_string(n, temp, 0);
+		Delete(temp);
+
+		String *slot_name = Getattr(c, "sym:name");
+		Printf(f_cl, "\n\t(%s %s)", slot_name, lisp_type);
+
+		Delete(lisp_type);
+	}
+
+	Printf(f_cl, ")\n");
+
+	return SWIG_OK;
 }
 
 extern "C" Language *swig_camplify(void) 
